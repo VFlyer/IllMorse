@@ -92,8 +92,8 @@ public class IllMorseScript : MonoBehaviour
 }
 
     private IEnumerator Animation () {
-            WordDisplay.text = "";
-            WordDisplay.text += "G";
+            MainDisplay.text = "";
+            WordDisplay.text = "G";
             Audio.PlaySoundAtTransform("HardTypewriterKey", transform);
             yield return new WaitForSeconds(0.5f);
             WordDisplay.text += "G";
@@ -104,6 +104,16 @@ public class IllMorseScript : MonoBehaviour
             yield return new WaitForSeconds(0.3f);
             Audio.PlaySoundAtTransform("DingSound", transform);
             Module.HandlePass();
+            _moduleSolved = true;
+        var bottomText = "Made by Crazycaleb";
+        yield return new WaitForSeconds(1.5f);
+        for (var x = 0; x < bottomText.Length; x++)
+        {
+            MainDisplay.text = x + 1 >= bottomText.Length ? bottomText : bottomText.Substring(0, x + 1);
+            Audio.PlaySoundAtTransform("HardTypewriterKey", transform);
+            yield return new WaitForSeconds(0.1f);
+        }
+
         }
     public void DotButton(){
         GetComponent<KMSelectable>().AddInteractionPunch(0.5f);
@@ -263,5 +273,141 @@ public class IllMorseScript : MonoBehaviour
             charArray[randomIndex] = temp;
         }
         return new string(charArray);
+    }
+
+#pragma warning disable IDE0051 // Remove unused private members
+    private readonly string TwitchHelpMessage = "\"!{0} next (A-Z)/(##)\" [Presses the next button continuously until the displayed word contains the letters specified, a specified amount of times SLOWLY, or just once if neither are specified.] | \"!{0} submit (.- )\" [Presses the submit button, or inputs the sequence of dashes, dots, and spaces, and then submit.]";
+#pragma warning restore IDE0051 // Remove unused private members
+    IEnumerator ProcessTwitchCommand(string command)
+    {
+        var rgxMatchNextGeneral = Regex.Match(command, @"^next(\s(([A-Z]+\s?)*|[0-9]+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var rgxMatchSubAny = Regex.Match(command, @"^submit(\s[\.\-]+[\.\-\s]+)?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (rgxMatchNextGeneral.Success)
+        {
+            if (acceptingAnswer)
+            {
+                yield return "sendtochaterror The module is in submission! The next button will not be pressed in this state.";
+                yield break;
+            }
+            var filterChars = rgxMatchNextGeneral.Value.Split().Skip(1).Join("").ToUpperInvariant();
+            if (!filterChars.Any())
+            {
+                yield return null;
+                nextButton.OnInteract();
+            }
+            else if (filterChars.All(a => char.IsDigit(a)))
+            {
+                int toPress;
+                if (!int.TryParse(filterChars, out toPress) || toPress < 0)
+                {
+                    yield return string.Format("sendtochaterror I am NOT pressing the next button that many times: {0}", filterChars);
+                    yield break;
+                }
+                yield return null;
+                for (var x = 0; x < toPress; x++)
+                {
+                    nextButton.OnInteract();
+                    yield return string.Format("trywaitcancel 2 Halted pressing the buttons after this many times: {0}", x + 1);
+                }
+            }
+            else if (filterChars.All(a => char.IsLetter(a)))
+            {
+                var distinctChars = filterChars.Distinct();
+                yield return null;
+                while (!WordDisplay.text.Any(a => distinctChars.Contains(a)))
+                {
+                    nextButton.OnInteract();
+                    yield return string.Format("trywaitcancel 0.1 Stopped finding the following characters on the module: {0}", filterChars);
+                }
+            }
+            else
+            {
+                yield return string.Format("sendtochaterror I am not sure what you mean by: {0}", command);
+                yield break;
+            }
+        }
+        if (rgxMatchSubAny.Success)
+        {
+            var sequenceChars = rgxMatchSubAny.Value.Split().Skip(1).Join();
+            if (!sequenceChars.Any())
+            {
+                if (acceptingAnswer)
+                {
+                    yield return "sendtochaterror The module is already in submission! Specify a sequence of dots and dashes in your command.";
+                    yield break;
+                }
+                yield return null;
+                submitButton.OnInteract();
+            }
+            else
+            {
+                if (!acceptingAnswer)
+                {
+                    yield return "sendtochaterror The module is not in submission! Do not specify a sequence of dots and dashes to enter submission.";
+                    yield break;
+                }
+                yield return null;
+                for (var x = 0; x < sequenceChars.Length; x++)
+                {
+                    var curChar = sequenceChars[x];
+                    switch (curChar)
+                    {
+                        case '.':
+                            dotButton.OnInteract();
+                            break;
+                        case '-':
+                            dashButton.OnInteract();
+                            break;
+                        case ' ':
+                            spaceButton.OnInteract();
+                            break;
+                    }
+                    yield return new WaitForSeconds(0.1f);
+                }
+                submitButton.OnInteract();
+                if (stageCounter >= 3)
+                    yield return "solve";
+            }
+        }
+    }
+
+    IEnumerator TwitchHandleForcedSolve()
+    {
+        if (!acceptingAnswer)
+            submitButton.OnInteract();
+        while (stageCounter < 3)
+        {
+            var txtDisplay = MainDisplay.text;
+            if (txtDisplay.Any() && !morseAnswer.StartsWith(txtDisplay))
+            {
+                Debug.LogFormat("<Ill Morse #{0}> Halted autosolve due to answer not starting with the displayed Morse, strike expected if continued: {1}", _moduleId, txtDisplay);
+                yield break;
+            }
+            else if (txtDisplay == morseAnswer)
+            {
+                submitButton.OnInteract();
+                yield return new WaitForSeconds(0.1f);
+            }
+            else
+            {
+                var curLengthSub = txtDisplay.Length;
+                var curChar = morseAnswer[curLengthSub];
+                switch (curChar)
+                {
+                    case '.':
+                        dotButton.OnInteract();
+                        break;
+                    case '-':
+                        dashButton.OnInteract();
+                        break;
+                    case ' ':
+                        spaceButton.OnInteract();
+                        break;
+                }
+                yield return new WaitForSeconds(0.1f);
+            }
+        }
+        while (!_moduleSolved)
+            yield return true;
     }
 }
